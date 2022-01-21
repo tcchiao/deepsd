@@ -43,15 +43,15 @@ CHECKPOINTS = [CHECKPOINT_DIR % config.get(m[0], 'model_name') for m in model_se
 DEEPSD_MODEL_NAME = config.get('DeepSD', 'model_name')
 
 def get_graph_def():
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
         checkpoint = tf.train.latest_checkpoint(FLAGS.checkpoint_dir)
-        new_saver = tf.train.import_meta_graph(checkpoint + '.meta')
+        new_saver = tf.compat.v1.train.import_meta_graph(checkpoint + '.meta')
         new_saver.restore(sess, checkpoint)
         return sess.graph_def
 
 def freeze_graph(model_folder, graph_name=None):
     # We start a session and restore the graph weights
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
         # We retrieve our checkpoint fullpath
         checkpoint = tf.train.get_checkpoint_state(model_folder)
         input_checkpoint = checkpoint.model_checkpoint_path
@@ -74,11 +74,11 @@ def freeze_graph(model_folder, graph_name=None):
         clear_devices = True
 
         # We import the meta graph and retrieve a Saver
-        saver = tf.train.import_meta_graph(input_checkpoint + '.meta',
+        saver = tf.compat.v1.train.import_meta_graph(input_checkpoint + '.meta',
                                            clear_devices=clear_devices)
 
         # We retrieve the protobuf graph definition
-        graph = tf.get_default_graph()
+        graph = tf.compat.v1.get_default_graph()
         input_graph_def = graph.as_graph_def()
         black_list = []
         saver.restore(sess, input_checkpoint)
@@ -107,15 +107,15 @@ def freeze_graph(model_folder, graph_name=None):
         )
 
         # Finally we serialize and dump the output graph to the filesystem
-        with tf.gfile.GFile(output_graph, "wb") as f:
+        with tf.io.gfile.GFile(output_graph, "wb") as f:
             f.write(output_graph_def.SerializeToString())
         print("%d ops in the final graph." % len(output_graph_def.node))
 
 def load_graph(frozen_graph_filename, graph_name, x=None):
     # We load the protobuf file from the disk and parse it to retrieve the 
     # unserialized graph_def
-    with tf.gfile.GFile(frozen_graph_filename, "rb") as f:
-        graph_def = tf.GraphDef()
+    with tf.io.gfile.GFile(frozen_graph_filename, "rb") as f:
+        graph_def = tf.compat.v1.GraphDef()
         graph_def.ParseFromString(f.read())
 
     # Then, we can use again a convenient built-in function to import a graph_def into the 
@@ -123,7 +123,7 @@ def load_graph(frozen_graph_filename, graph_name, x=None):
     #with tf.Graph().as_default() as graph:
         is_training = tf.constant(False)
         if x is None:
-            x = tf.placeholder(tf.float32, shape=(None, None, None, 2), name="%s/new_x" % graph_name)
+            x = tf.compat.v1.placeholder(tf.float32, shape=(None, None, None, 2), name="%s/new_x" % graph_name)
         y, = tf.import_graph_def(
             graph_def,
             input_map={'x': x, 'is_training': is_training},
@@ -151,20 +151,20 @@ def join_graphs(checkpoints, new_checkpoint):
         # freeze current graph
         graph_name = "_".join(os.path.basename(cpt.strip("/")).split("_")[1:4])
         freeze_graph(cpt, graph_name)
-        tf.reset_default_graph()
+        tf.compat.v1.reset_default_graph()
 
-    x = tf.placeholder(tf.float32, shape=(None, None, None, 1), name="lr_x")
+    x = tf.compat.v1.placeholder(tf.float32, shape=(None, None, None, 1), name="lr_x")
     elevs = []
     for j, cpt in enumerate(checkpoints):
         # another elevation placeholder
-        elv = tf.placeholder(tf.float32, shape=(None, None, None, 1), name="elev_%i" % j)
+        elv = tf.compat.v1.placeholder(tf.float32, shape=(None, None, None, 1), name="elev_%i" % j)
         elevs.append(elv)
 
         # resize low-resolution
-        h = tf.shape(x)[1]
-        w = tf.shape(x)[2]
+        h = tf.shape(input=x)[1]
+        w = tf.shape(input=x)[2]
         size = tf.stack([h*UPSCALE_FACTOR, w*UPSCALE_FACTOR])
-        x = tf.image.resize_bilinear(x, size)
+        x = tf.image.resize(x, size, method=tf.image.ResizeMethod.BILINEAR)
 
         # join elevation and interpolated image
         x = tf.concat([x, elv], axis=3)
@@ -174,18 +174,18 @@ def join_graphs(checkpoints, new_checkpoint):
         next_input = graph_name + '/x'
         x = load_graph(os.path.join(cpt, 'frozen_model.pb'), graph_name, x=x)
 
-    with tf.Session() as sess:
-        summary_op = tf.summary.merge_all()
-        train_writer = tf.summary.FileWriter(new_checkpoint, sess.graph)
-        train_writer.add_graph(tf.get_default_graph())
+    with tf.compat.v1.Session() as sess:
+        summary_op = tf.compat.v1.summary.merge_all()
+        train_writer = tf.compat.v1.summary.FileWriter(new_checkpoint, sess.graph)
+        train_writer.add_graph(tf.compat.v1.get_default_graph())
 
         gd = sess.graph.as_graph_def()
         output_graph = os.path.join(new_checkpoint, 'frozen_graph.pb')
-        with tf.gfile.GFile(output_graph, "wb") as f:
+        with tf.io.gfile.GFile(output_graph, "wb") as f:
             f.write(gd.SerializeToString())
         print("%d ops in the final graph." % len(gd.node))
 
-    tf.reset_default_graph()
+    tf.compat.v1.reset_default_graph()
     return output_graph, x.name
 
 def main(frozen_graph, output_node, year, scale1=1., n_stacked=1):
@@ -210,14 +210,14 @@ def main(frozen_graph, output_node, year, scale1=1., n_stacked=1):
     elevs = elevs[::-1]
 
     #now read in frozen graph, set placeholder for x, constant for elevs
-    x = tf.placeholder(tf.float32, shape=(None, None, None, 1))
+    x = tf.compat.v1.placeholder(tf.float32, shape=(None, None, None, 1))
     #elev_1  = tf.constant(elev_dict[1.][np.newaxis, :, :, np.newaxis].astype(np.float32))
     #elev_0  = tf.constant(elev_dict[1./2][np.newaxis, :, :, np.newaxis].astype(np.float32))
     input_map= {'elev_%i' % i: elevs[i] for i in range(n_stacked)}
     input_map['lr_x'] = x
 
-    with tf.gfile.GFile(frozen_graph, "rb") as f:
-        graph_def = tf.GraphDef()
+    with tf.io.gfile.GFile(frozen_graph, "rb") as f:
+        graph_def = tf.compat.v1.GraphDef()
         graph_def.ParseFromString(f.read())
 
         y, = tf.import_graph_def(
@@ -230,14 +230,14 @@ def main(frozen_graph, output_node, year, scale1=1., n_stacked=1):
         )
 
     downscaled = []
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
         rmses = []
         for i in range(0,len(X)):
             _x = X[i,np.newaxis]
             # is_training=False removes padding at test time
             downscaled += [sess.run(y,feed_dict={x: _x})]
             rmses.append(np.sqrt(np.nanmean((downscaled[-1] - Y[i])**2)))
-        print "RMSE", np.mean(rmses)
+        print("RMSE", np.mean(rmses))
 
     downscaled = np.concatenate(downscaled, axis=0)
     downscaled *= mask[:,:,np.newaxis]
