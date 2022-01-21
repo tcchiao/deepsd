@@ -58,8 +58,8 @@ if not os.path.exists(SAVE_DIR):
 
 def train():
     with tf.Graph().as_default(), tf.device("/cpu:0"):
-        global_step = tf.get_variable('global_step', [],
-                    initializer=tf.constant_initializer(0), trainable=False)
+        global_step = tf.compat.v1.get_variable('global_step', [],
+                    initializer=tf.compat.v1.constant_initializer(0), trainable=False)
 
         errors = []
 
@@ -78,10 +78,10 @@ def train():
         train_labels_cropped = train_labels[:,border_size:-border_size,border_size:-border_size,:]
 
         # set placeholders
-        is_training = tf.placeholder_with_default(True, (), name='is_training')
+        is_training = tf.compat.v1.placeholder_with_default(True, (), name='is_training')
 
-        x = tf.cond(is_training, lambda: train_images, lambda: test_images)
-        y = tf.cond(is_training, lambda: train_labels_cropped, lambda: test_labels)
+        x = tf.cond(pred=is_training, true_fn=lambda: train_images, false_fn=lambda: test_images)
+        y = tf.cond(pred=is_training, true_fn=lambda: train_labels_cropped, false_fn=lambda: test_labels)
 
         x = tf.identity(x, name='x')
         y = tf.identity(y, name='y')
@@ -93,12 +93,12 @@ def train():
         prediction = tf.identity(model.prediction, name='prediction')
 
         # initialize graph and start session
-        saver = tf.train.Saver()
-        init = tf.global_variables_initializer()
-        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True,
+        saver = tf.compat.v1.train.Saver()
+        init = tf.compat.v1.global_variables_initializer()
+        sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(allow_soft_placement=True,
                                                 log_device_placement=False))
         sess.run(init)
-        sess.run(tf.local_variables_initializer())
+        sess.run(tf.compat.v1.local_variables_initializer())
 
         # look for checkpoint
         if FLAGS.checkpoint_file is not None:
@@ -112,12 +112,12 @@ def train():
 
         # start coordinator for data
         coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+        threads = tf.compat.v1.train.start_queue_runners(sess=sess, coord=coord)
 
         # summary data
-        summary_op = tf.summary.merge_all()
-        train_writer = tf.summary.FileWriter(SAVE_DIR + '/train', sess.graph)
-        test_writer = tf.summary.FileWriter(SAVE_DIR + '/test', sess.graph)
+        summary_op = tf.compat.v1.summary.merge_all()
+        train_writer = tf.compat.v1.summary.FileWriter(SAVE_DIR + '/train', sess.graph)
+        test_writer = tf.compat.v1.summary.FileWriter(SAVE_DIR + '/test', sess.graph)
 
         def feed_dict(train=True):
             return {is_training: train}
